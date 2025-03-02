@@ -12,7 +12,7 @@ extension TextView {
         // Set cursor
         guard isSelectable,
               event.type == .leftMouseDown,
-              let offset = layoutManager.textOffsetAtPoint(self.convert(event.locationInWindow, from: nil)) else {
+              let offset = layoutManager.textOffsetAtPoint(convert(event.locationInWindow, from: nil)) else {
             super.mouseDown(with: event)
             return
         }
@@ -84,7 +84,7 @@ extension TextView {
     }
 
     override public func mouseDragged(with event: NSEvent) {
-        guard !(inputContext?.handleEvent(event) ?? false) && isSelectable else {
+        guard !(inputContext?.handleEvent(event) ?? false), isSelectable else {
             return
         }
 
@@ -104,7 +104,7 @@ extension TextView {
                 )
             )
             setNeedsDisplay()
-            self.autoscroll(with: event)
+            autoscroll(with: event)
         }
     }
 
@@ -136,13 +136,25 @@ extension TextView {
     }
 }
 
-extension TextView {
-    public override func mouseEntered(with event: NSEvent) {
-        unmarkText()
-        selectWord(nil)
+public extension TextView {
+    override func mouseEntered(with event: NSEvent) {
+        guard isSelectable,
+              let offset = layoutManager.textOffsetAtPoint(convert(event.locationInWindow, from: nil)
+              ) else {
+            super.mouseEntered(with: event)
+            return
+        }
+        handleSingleClick(event: event, offset: offset)
+        handleDoubleClick(event: event)
+//        mouseDown(with: event)
+//        unmarkText()
+//        selectWord(nil)
     }
-    
-    public override func mouseExited(with event: NSEvent) {
-        unmarkText()
+
+    override func mouseExited(with event: NSEvent) {
+//        unmarkTextIfNeeded()
+//        mouseDown(with: event)
+//        unmarkText()
+        handleSingleClick(event: event, offset: 0)
     }
 }
