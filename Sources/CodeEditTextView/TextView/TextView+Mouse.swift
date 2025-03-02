@@ -135,3 +135,14 @@ extension TextView {
         setNeedsDisplay()
     }
 }
+
+extension TextView {
+    public override func mouseEntered(with event: NSEvent) {
+        unmarkText()
+        selectWord(nil)
+    }
+    
+    public override func mouseExited(with event: NSEvent) {
+        unmarkText()
+    }
+}

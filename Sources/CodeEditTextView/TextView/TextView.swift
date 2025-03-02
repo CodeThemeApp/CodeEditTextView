@@ -337,12 +337,18 @@ public class TextView: NSView, NSTextContent {
 
     override public func layout() {
         layoutManager.layoutLines()
+        onUpdateTrackingAreas()
         super.layout()
     }
 
     override public func viewWillMove(toWindow newWindow: NSWindow?) {
         super.viewWillMove(toWindow: newWindow)
         layoutManager.layoutLines()
+    }
+
+    override public func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        onUpdateTrackingAreas()
     }
 
     override public func viewWillMove(toSuperview newSuperview: NSView?) {
