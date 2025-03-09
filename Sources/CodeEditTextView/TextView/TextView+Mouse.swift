@@ -167,8 +167,7 @@ public extension TextView {
     }
 
     private func handleHover(at offset: Int) {
-        selectionManager.setSelectedRange(NSRange(location: offset, length: 0))
-        unmarkTextIfNeeded()
+        selectionManager.setSelectedRanges([NSRange(location: offset, length: 0)])
         selectCapture(nil)
     }
 
@@ -176,9 +175,7 @@ public extension TextView {
         let location = event.locationInWindow.rounded
         roundedPreviousMousePosition = nil
         print("🖱️ Exited on: \(location)")
-
-        selectionManager.removeCursors()
-        selectionManager.setSelectedRanges([])
+        deselectCapture()
     }
 }
 

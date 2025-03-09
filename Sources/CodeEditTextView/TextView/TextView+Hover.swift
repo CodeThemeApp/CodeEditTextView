@@ -48,16 +48,7 @@ extension TextView {
                 )
 
                 addTrackingArea(trackingArea)
-                view.drawRedBorder()
             }
         }
-    }
-}
-
-extension NSView {
-    func drawRedBorder() {
-        wantsLayer = true // Ensure the view has a layer
-        layer?.borderColor = NSColor.red.cgColor
-        layer?.borderWidth = 2.0 // Adjust the width as needed
     }
 }

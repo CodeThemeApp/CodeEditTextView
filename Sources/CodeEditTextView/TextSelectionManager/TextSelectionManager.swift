@@ -174,7 +174,7 @@ public class TextSelectionManager: NSObject {
                             cursorTimer.register(internalCursorView)
                         }
 
-                        textView?.addSubview(cursorView)
+//                        textView?.addSubview(cursorView)
                     }
 
                     cursorView.frame.origin = cursorOrigin

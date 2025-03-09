@@ -28,14 +28,7 @@ public extension TextView {
     }
 
     override func selectWord(_ sender: Any?) {
-        let newSelections = rangeForWordSelection()
-        selectionManager.setSelectedRanges(newSelections)
-        unmarkTextIfNeeded()
-        needsDisplay = true
-    }
-
-    private func rangeForWordSelection() -> [NSRange] {
-        selectionManager.textSelections.compactMap { textSelection -> NSRange? in
+        let newSelections = selectionManager.textSelections.compactMap { textSelection -> NSRange? in
             guard textSelection.range.isEmpty,
                   let char = textStorage.substring(
                       from: NSRange(location: textSelection.range.location, length: 1)
@@ -63,6 +56,73 @@ public extension TextView {
             }
             return NSRange(start: start, end: end)
         }
+        selectionManager.setSelectedRanges(newSelections)
+        unmarkTextIfNeeded()
+        needsDisplay = true
+    }
+
+    private func rangeForSelectedCapture() throws -> NSRange {
+        let range = selectionManager.textSelections.compactMap { textSelection -> NSRange? in
+            let attributedSubstring = textStorage.attributedSubstring(
+                from: NSRange(location: textSelection.range.location, length: 1)
+            )
+
+            guard textSelection.range.isEmpty,
+                  let char = attributedSubstring.string.first
+            else {
+                return nil
+            }
+
+            guard
+                let characterSet = characterSet(for: String(char))
+            else {
+                return nil
+            }
+
+            if characterSet == .alphanumerics || characterSet == .punctuationCharacters {
+                guard
+                    let start = textStorage.findPrecedingOccurrenceOfCharacter(
+                        in: characterSet.inverted,
+                        from: textSelection.range.location
+                    ),
+                    let end = textStorage.findNextOccurrenceOfCharacter(
+                        in: characterSet.inverted,
+                        from: textSelection.range.max
+                    )
+                else {
+                    return nil
+                }
+                return NSRange(start: start, end: end)
+            } else {
+                return nil
+            }
+        }
+        guard let first = range.first else { throw CaptureSelectionError.unknown }
+        return first
+    }
+
+    private func characterSet(for string: String) -> CharacterSet? {
+        let charSet = CharacterSet(charactersIn: string)
+
+        if CharacterSet.alphanumerics.isSuperset(of: charSet) {
+            return .alphanumerics
+        } else if CharacterSet.whitespaces.isSuperset(of: charSet) {
+            return .whitespaces
+        } else if CharacterSet.newlines.isSuperset(of: charSet) {
+            return .newlines
+        } else if CharacterSet.punctuationCharacters.isSuperset(of: charSet) {
+            return .punctuationCharacters
+        } else {
+            return nil
+        }
+    }
+
+    enum CaptureSelectionError: Error {
+        case empty
+        case outOfBounds
+        case invisibles
+        case missingAttribute
+        case unknown
     }
 
     func selectCapture(_ sender: Any?) {
@@ -70,21 +130,28 @@ public extension TextView {
         /// to check leading / trailing characters next to current selection
         /// and add logic that verifies that this is between the same capture sytnax and should be highlighted
         /// eg. comments, docs
+        guard textStorage.string.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false else { return }
 
-        // 1. check if text is larger than ""
-        guard textStorage.string.isEmpty == false else { return }
-        guard let captureName = getCurrentWordCaptureName() else { return }
-        currentlyHoveredCaptureName = captureName
+        do {
+            let hoveredRange = try rangeForSelectedCapture()
+            let captureName = try captureName(for: hoveredRange)
+            currentlyHoveredCaptureName = captureName
 
-        // TODO: [09.03.2025] Highlight it differently -
+            let documentRange = visibleRange()
+            let matchingRanges = ranges(for: captureName, in: documentRange)
+            selectionManager.setSelectedRanges(matchingRanges)
+            unmarkTextIfNeeded()
+            needsDisplay = true
+        } catch {
+            deselectCapture()
+        }
+    }
 
-        // TODO: [09.03.2025] Highlight other words with the same capture name -
-        /// 1. Get the `NSRange` for entire text (or ideally for the part that is visible 😜)
-        let documentRange = visibleRange()
-        /// 2. Find the array of `NSRange` that contain matching attributedString `captureName` property
-        let matchingRanges = ranges(for: captureName, in: documentRange)
-        /// 3. Mark words underneath as selected
-        selectionManager.setSelectedRanges(matchingRanges)
+    func deselectCapture() {
+        currentlyHoveredCaptureName = nil
+        selectionManager.removeCursors()
+        selectionManager.setSelectedRanges([])
+        unmarkTextIfNeeded()
         needsDisplay = true
     }
 
@@ -99,9 +166,10 @@ public extension TextView {
                 NSAttributedString.Key("captureName"),
                 in: searchRange,
                 options: []
-            ) { value, range, stop in
-                if let value = value as? String, value == captureName {
-                    foundRange = range
+            ) { value, currentRange, stop in
+                if let value = value as? String, value == captureName,
+                   textStorage.substring(from: currentRange)?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false {
+                    foundRange = currentRange
                     stop.pointee = true
                 }
             }
@@ -122,13 +190,23 @@ public extension TextView {
         return matchingRanges
     }
 
-    private func getCurrentWordCaptureName() -> String? {
-        guard let currentWordRange = rangeForWordSelection().first else { return nil }
+    private func captureName(for range: NSRange) throws -> String {
+        let range = try rangeForSelectedCapture()
         var effectiveRange = NSRange(start: 0, end: 0)
-        let attributes = textStorage.attributes(
-            at: currentWordRange.lowerBound,
+        let attributes = attributes(
+            at: range.lowerBound,
             effectiveRange: &effectiveRange
         )
-        return attributes[NSAttributedString.Key("captureName")] as? String
+        guard let value = attributes[NSAttributedString.Key("captureName")] as? String
+        else {
+            throw CaptureSelectionError.missingAttribute
+        }
+        return value
+    }
+}
+
+extension NSRange {
+    func contains(_ other: NSRange) -> Bool {
+        location <= other.location && location + length >= other.location + other.length
     }
 }
