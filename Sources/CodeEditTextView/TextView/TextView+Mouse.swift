@@ -175,5 +175,7 @@ public extension TextView {
     }
 
     private func handleHover(at offset: Int) {
+        selectionManager.setSelectedRanges([NSRange(location: offset, length: 0)])
+        selectCapture(nil)
     }
 }
