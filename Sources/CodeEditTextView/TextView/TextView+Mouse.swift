@@ -135,3 +135,45 @@ extension TextView {
         setNeedsDisplay()
     }
 }
+
+// MARK: Mouse Hover -
+
+public extension TextView {
+    override func mouseEntered(with event: NSEvent) {
+        if let location = updatedLocation(for: event),
+           let offset = layoutManager.textOffsetAtPoint(convert(location, from: nil)) {
+            handleHover(at: offset)
+        }
+    }
+
+    override func mouseMoved(with event: NSEvent) {
+        if let location = updatedLocation(for: event),
+           let offset = layoutManager.textOffsetAtPoint(convert(location, from: nil)) {
+            print("🖱️ Mouse moved to: \(location)")
+            handleHover(at: offset)
+        }
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        let location = event.locationInWindow.rounded
+        roundedPreviousMousePosition = nil
+        print("🖱️ Exited on: \(location)")
+        deselectCapture()
+    }
+
+    private func updatedLocation(for event: NSEvent) -> NSPoint? {
+        let newLocation = event.locationInWindow.rounded
+        let previousLocation = roundedPreviousMousePosition
+
+        /// Early return when update is not required
+        guard newLocation.x != previousLocation?.x || newLocation.y != previousLocation?.y else {
+            return nil
+        }
+
+        roundedPreviousMousePosition = newLocation
+        return newLocation
+    }
+
+    private func handleHover(at offset: Int) {
+    }
+}
