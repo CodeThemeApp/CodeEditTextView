@@ -23,40 +23,41 @@ extension TextView {
     }
 
     private func addDefaultTrackingArea() {
-        guard let textStorage else {
-            print("no text storage")
-            return
-        }
-        guard let layoutManager else {
-            print("no layoutManager")
+        guard
+            let textStorage,
+            let layoutManager
+        else {
             return
         }
 
-        // Lay out the text
         layoutManager.layoutLines()
 
-        // Get the subviews of the layout manager's view
         for view in layoutManager.layoutView?.subviews ?? [] {
-            // Check if the view is a LineFragmentView
             if view is LineFragmentView {
-                // Get the rect for the view
                 let rect = view.frame
 
-                // Create a tracking area for the view
                 let trackingArea = NSTrackingArea(
                     rect: rect,
                     options: [
                         .mouseEnteredAndExited,
                         .mouseMoved,
-                        .activeAlways // changed for now
+                        .activeInKeyWindow
                     ],
                     owner: self,
                     userInfo: nil
                 )
 
-                // Add the tracking area to the view
                 addTrackingArea(trackingArea)
+                view.drawRedBorder()
             }
         }
+    }
+}
+
+extension NSView {
+    func drawRedBorder() {
+        wantsLayer = true // Ensure the view has a layer
+        layer?.borderColor = NSColor.red.cgColor
+        layer?.borderWidth = 2.0 // Adjust the width as needed
     }
 }

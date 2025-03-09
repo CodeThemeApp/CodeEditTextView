@@ -138,23 +138,52 @@ extension TextView {
 
 public extension TextView {
     override func mouseEntered(with event: NSEvent) {
-        guard isSelectable,
-              let offset = layoutManager.textOffsetAtPoint(convert(event.locationInWindow, from: nil)
-              ) else {
-            super.mouseEntered(with: event)
-            return
+        if let location = newMouseLocation(for: event),
+           let offset = layoutManager.textOffsetAtPoint(convert(location, from: nil)) {
+            print("🖱️ Entered on: \(location)")
+            handleHover(at: offset)
         }
-        handleSingleClick(event: event, offset: offset)
-        handleDoubleClick(event: event)
-//        mouseDown(with: event)
-//        unmarkText()
-//        selectWord(nil)
+    }
+
+    override func mouseMoved(with event: NSEvent) {
+        if let location = newMouseLocation(for: event),
+           let offset = layoutManager.textOffsetAtPoint(convert(location, from: nil)) {
+            print("🖱️ Mouse moved to: \(location)")
+            handleHover(at: offset)
+        }
+    }
+
+    private func newMouseLocation(for event: NSEvent) -> NSPoint? {
+        let newLocation = event.locationInWindow.rounded
+        let previousLocation = roundedPreviousMousePosition
+
+        /// Early return when update is not required
+        guard newLocation.x != previousLocation?.x || newLocation.y != previousLocation?.y else {
+            return nil
+        }
+
+        roundedPreviousMousePosition = newLocation
+        return newLocation
+    }
+
+    private func handleHover(at offset: Int) {
+        selectionManager.setSelectedRange(NSRange(location: offset, length: 0))
+        unmarkTextIfNeeded()
+        selectCapture(nil)
     }
 
     override func mouseExited(with event: NSEvent) {
-//        unmarkTextIfNeeded()
-//        mouseDown(with: event)
-//        unmarkText()
-        handleSingleClick(event: event, offset: 0)
+        let location = event.locationInWindow.rounded
+        roundedPreviousMousePosition = nil
+        print("🖱️ Exited on: \(location)")
+
+        selectionManager.removeCursors()
+        selectionManager.setSelectedRanges([])
+    }
+}
+
+extension NSPoint {
+    var rounded: NSPoint {
+        return NSPoint(x: x.rounded(), y: y.rounded())
     }
 }

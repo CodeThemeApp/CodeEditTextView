@@ -5,8 +5,8 @@
 //  Created by Khan Winter on 6/21/23.
 //
 
-import Foundation
 import AppKit
+import Foundation
 
 public protocol TextLayoutManagerDelegate: AnyObject {
     func layoutManagerHeightDidUpdate(newHeight: CGFloat)
@@ -28,11 +28,13 @@ public class TextLayoutManager: NSObject {
             setNeedsLayout()
         }
     }
+
     public var wrapLines: Bool {
         didSet {
             setNeedsLayout()
         }
     }
+
     public var detectedLineEnding: LineEnding = .lineFeed
     /// The edge insets to inset all text layout with.
     public var edgeInsets: HorizontalEdgeInsets = .zero {
@@ -69,7 +71,7 @@ public class TextLayoutManager: NSObject {
 
     weak var textStorage: NSTextStorage?
     var lineStorage: TextLineStorage<TextLine> = TextLineStorage()
-    var markedTextManager: MarkedTextManager = MarkedTextManager()
+    var markedTextManager: MarkedTextManager = .init()
     private let viewReuseQueue: ViewReuseQueue<LineFragmentView, UUID> = ViewReuseQueue()
     package var visibleLineIds: Set<TextLine.ID> = []
     /// Used to force a complete re-layout using `setNeedsLayout`
@@ -79,12 +81,13 @@ public class TextLayoutManager: NSObject {
     public var isInTransaction: Bool {
         transactionCounter > 0
     }
+
     #if DEBUG
-    /// Guard variable for an assertion check in debug builds.
-    /// Ensures that layout calls are not overlapping, potentially causing layout issues.
-    /// This is used over a lock, as locks in performant code such as this would be detrimental to performance.
-    /// Also only included in debug builds. DO NOT USE for checking if layout is active or not. That is an anti-pattern.
-    private var isInLayout: Bool = false
+        /// Guard variable for an assertion check in debug builds.
+        /// Ensures that layout calls are not overlapping, potentially causing layout issues.
+        /// This is used over a lock, as locks in performant code such as this would be detrimental to performance.
+        /// Also only included in debug builds. DO NOT USE for checking if layout is active or not. That is an anti-pattern.
+        private var isInLayout: Bool = false
     #endif
 
     weak var layoutView: NSView?
@@ -146,21 +149,21 @@ public class TextLayoutManager: NSObject {
     func prepareTextLines() {
         guard lineStorage.count == 0, let textStorage else { return }
         #if DEBUG
-        // Grab some performance information if debugging.
-        var info = mach_timebase_info()
-        guard mach_timebase_info(&info) == KERN_SUCCESS else { return }
-        let start = mach_absolute_time()
+            // Grab some performance information if debugging.
+            var info = mach_timebase_info()
+            guard mach_timebase_info(&info) == KERN_SUCCESS else { return }
+            let start = mach_absolute_time()
         #endif
 
         lineStorage.buildFromTextStorage(textStorage, estimatedLineHeight: estimateLineHeight())
         detectedLineEnding = LineEnding.detectLineEnding(lineStorage: lineStorage, textStorage: textStorage)
 
         #if DEBUG
-        let end = mach_absolute_time()
-        let elapsed = end - start
-        let nanos = elapsed * UInt64(info.numer) / UInt64(info.denom)
-        let msec = TimeInterval(nanos) / TimeInterval(NSEC_PER_MSEC)
-        logger.info("TextLayoutManager built in: \(msec, privacy: .public)ms")
+            let end = mach_absolute_time()
+            let elapsed = end - start
+            let nanos = elapsed * UInt64(info.numer) / UInt64(info.denom)
+            let msec = TimeInterval(nanos) / TimeInterval(NSEC_PER_MSEC)
+            logger.info("TextLayoutManager built in: \(msec, privacy: .public)ms")
         #endif
     }
 
@@ -205,7 +208,7 @@ public class TextLayoutManager: NSObject {
     /// See docs on ``isInLayout`` for more details.
     private func assertNotInLayout() {
         #if DEBUG // This is redundant, but it keeps the flag debug-only too which helps prevent misuse.
-        assert(!isInLayout, "layoutLines called while already in a layout pass. This is a programmer error.")
+            assert(!isInLayout, "layoutLines called while already in a layout pass. This is a programmer error.")
         #endif
     }
 
@@ -219,7 +222,7 @@ public class TextLayoutManager: NSObject {
             return
         }
         #if DEBUG
-        isInLayout = true
+            isInLayout = true
         #endif
         let minY = max(visibleRect.minY - verticalLayoutPadding, 0)
         let maxY = max(visibleRect.maxY + verticalLayoutPadding, 0)
@@ -273,7 +276,7 @@ public class TextLayoutManager: NSObject {
         visibleLineIds = newVisibleLines
 
         #if DEBUG
-        isInLayout = false
+            isInLayout = false
         #endif
 
         // These are fine to update outside of `isInLayout` as our internal data structures are finalized at this point

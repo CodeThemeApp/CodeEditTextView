@@ -232,3 +232,12 @@ public class TextSelectionManager: NSObject {
         }
     }
 }
+
+// MARK: Sytanx Highlighting -
+
+extension TextSelectionManager {
+    public func setSelectedCapture(at offset: Int) {
+        let range = NSRange(location: offset, length: 0)
+        setSelectedRanges([range])
+    }
+}
