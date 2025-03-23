@@ -87,7 +87,9 @@ extension SyntacticTextView {
             let documentRange = visibleRange
             let matchingRanges = ranges(for: captureName, in: documentRange)
             selectionManager.setSelectedRanges(matchingRanges)
+            // TODO: [23.03.2025] Efficiency issue: many repeating calls -
             syntacticSelectionManager.setSelectedCapture(at: hoveredRange.location)
+            print("Hovered range: \(hoveredRange)")
             unmarkTextIfNeeded()
             needsDisplay = true
         } catch {

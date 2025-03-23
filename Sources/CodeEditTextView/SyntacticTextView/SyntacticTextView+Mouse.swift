@@ -23,11 +23,6 @@ extension SyntacticTextView {
     }
 
     fileprivate func handleSingleClick(event: NSEvent, offset: Int) {
-        guard isEditable else {
-            super.mouseDown(with: event)
-            return
-        }
-
         selectionManager.setSelectedRange(NSRange(location: offset, length: 0))
         selectCapture(nil)
         unmarkTextIfNeeded()
