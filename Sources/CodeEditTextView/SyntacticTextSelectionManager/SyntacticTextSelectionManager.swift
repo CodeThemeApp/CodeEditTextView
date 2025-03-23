@@ -8,10 +8,30 @@
 import Foundation
 
 public class SyntacticTextSelectionManager: TextSelectionManager {
-    /// Sets the text selection based on the capture
+    public static let syntacticCategorySelectionChangedNotification: Notification.Name = .init("com.CodeEdit.SyntacticTextSelectionManager.Syntactic CategorySelectionChangedNotification")
+
+    public var selectedSyntacticName: String?
+    public var selectedSyntacticRange: NSRange?
+
     /// - Parameter offset: text position
-    func setSelectedCapture(at offset: Int) {
-        let range = NSRange(location: offset, length: 0)
-        setSelectedRanges([range])
+    func setSelectedCapture(
+        _ captureName: String?,
+        at range: NSRange?
+    ) {
+        selectedSyntacticName = captureName
+        selectedSyntacticRange = range
+
+        if let range {
+            setSelectedRanges([range])
+        } else {
+            setSelectedRanges([])
+        }
+        
+        NotificationCenter.default.post(
+            Notification(
+                name: Self.syntacticCategorySelectionChangedNotification,
+                object: self
+            )
+        )
     }
 }
