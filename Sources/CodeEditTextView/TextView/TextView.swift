@@ -248,8 +248,6 @@ public class TextView: NSView, NSTextContent {
     var isFirstResponder: Bool = false
     var mouseDragAnchor: CGPoint?
     var mouseDragTimer: Timer?
-    var roundedPreviousMousePosition: NSPoint?
-    var currentlyHoveredCaptureName: String?
 
     private var fontCharWidth: CGFloat {
         (" " as NSString).size(withAttributes: [.font: font]).width

@@ -11,12 +11,15 @@ public class SyntacticTextView: TextView {
     /// The syntax category selection manager for the syntactic text view.
     public package(set) var syntacticSelectionManager: SyntacticTextSelectionManager!
 
+    var roundedPreviousMousePosition: NSPoint?
+    var currentlyHoveredCaptureName: String?
+
     public init(string: String) {
         super.init(
             string: string,
             isEditable: false
         )
-        syntacticSelectionManager = setUpSyntacticSelectionManager()
+        self.syntacticSelectionManager = setUpSyntacticSelectionManager()
     }
 
     @MainActor required init?(coder: NSCoder) {
