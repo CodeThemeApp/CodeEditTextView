@@ -1,13 +1,13 @@
 //
-//  TextView+Capture.swift
+//  SyntacticTextView+Capture.swift
 //  CodeEditTextView
 //
-//  Created by Daniel Choroszucha on 09/03/2025.
+//  Created by Daniel Choroszucha on 23/03/2025.
 //
 
 import Foundation
 
-extension TextView {
+extension SyntacticTextView {
     private func rangeForSelectedCapture() throws -> NSRange {
         let range = selectionManager.textSelections.compactMap { textSelection -> NSRange? in
             let attributedSubstring = textStorage.attributedSubstring(
@@ -87,6 +87,7 @@ extension TextView {
             let documentRange = visibleRange
             let matchingRanges = ranges(for: captureName, in: documentRange)
             selectionManager.setSelectedRanges(matchingRanges)
+            syntacticSelectionManager.setSelectedCapture(at: hoveredRange.location)
             unmarkTextIfNeeded()
             needsDisplay = true
         } catch {

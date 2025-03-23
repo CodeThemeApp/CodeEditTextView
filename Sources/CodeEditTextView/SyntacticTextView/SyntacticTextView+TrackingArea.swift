@@ -1,5 +1,5 @@
 //
-//  TextView+TrackingArea.swift
+//  SyntacticTextView+TrackingArea.swift
 //  CodeEditTextView
 //
 //  Created by Daniel Choroszucha on 02/03/2025.
@@ -7,7 +7,7 @@
 
 import AppKit
 
-extension TextView {
+extension SyntacticTextView {
     // MARK: - Tracking Area Management
 
     override public func updateTrackingAreas() {

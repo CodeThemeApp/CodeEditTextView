@@ -1,13 +1,13 @@
 //
-//  TextSelectionManager+Capture.swift
+//  SyntacticTextSelectionManager.swift
 //  CodeEditTextView
 //
-//  Created by Daniel Choroszucha on 09/03/2025.
+//  Created by Daniel Choroszucha on 23/03/2025.
 //
 
 import Foundation
 
-public extension TextSelectionManager {
+public class SyntacticTextSelectionManager: TextSelectionManager {
     /// Sets the text selection based on the capture
     /// - Parameter offset: text position
     func setSelectedCapture(at offset: Int) {
