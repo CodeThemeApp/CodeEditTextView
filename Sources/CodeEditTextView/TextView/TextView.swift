@@ -33,7 +33,7 @@ import TextStory
 /// [`NSTextInputClient`](https://developer.apple.com/documentation/appkit/nstextinputclient) to work well with system
 /// text interactions such as inserting text and marked text.
 ///
-public class TextView: NSView, NSTextContent {
+open class TextView: NSView, NSTextContent {
     // MARK: - Statics
 
     /// The default typing attributes:
@@ -58,7 +58,6 @@ public class TextView: NSView, NSTextContent {
             textStorage.string
         }
         set {
-            layoutManager.willReplaceCharactersInRange(range: documentRange, with: newValue)
             textStorage.setAttributedString(NSAttributedString(string: newValue, attributes: typingAttributes))
         }
     }
@@ -104,6 +103,16 @@ public class TextView: NSView, NSTextContent {
         }
         set {
             layoutManager?.lineHeightMultiplier = newValue
+        }
+    }
+
+    /// The amount of extra space to add when overscroll is enabled, as a percentage of the viewport height
+    public var overscrollAmount: CGFloat = 0.5 {
+        didSet {
+            if overscrollAmount < 0 {
+                overscrollAmount = 0
+            }
+            updateFrameIfNeeded()
         }
     }
 
@@ -235,25 +244,39 @@ public class TextView: NSView, NSTextContent {
     ///            layout system. Use methods like ``TextView/replaceCharacters(in:with:)-58mt7`` or
     ///            ``TextView/insertText(_:)`` to modify content.
     package(set) public var textStorage: NSTextStorage!
+
     /// The layout manager for the text view.
     package(set) public var layoutManager: TextLayoutManager!
+
     /// The selection manager for the text view.
     package(set) public var selectionManager: TextSelectionManager!
 
-    /// Empasizse text ranges in the text view
-    public var emphasizeAPI: EmphasizeAPI?
+    /// Manages emphasized text ranges in the text view
+    public var emphasisManager: EmphasisManager?
 
     // MARK: - Private Properties
 
     var isFirstResponder: Bool = false
+
+    /// When dragging to create a selection, these enable us to scroll the view as the user drags outside the view's
+    /// bounds.
     var mouseDragAnchor: CGPoint?
     var mouseDragTimer: Timer?
+    var cursorSelectionMode: CursorSelectionMode = .character
+
+    /// When we receive a drag operation we add a temporary cursor view not managed by the selection manager.
+    /// This is the reference to that view, it is cleaned up when a drag ends.
+    var draggingCursorView: NSView?
+    var isDragging: Bool = false
+
+    var isOptionPressed: Bool = false
 
     private var fontCharWidth: CGFloat {
         (" " as NSString).size(withAttributes: [.font: font]).width
     }
 
     internal(set) public var _undoManager: CEUndoManager?
+
     @objc dynamic open var allowsUndo: Bool
 
     var scrollView: NSScrollView? {
@@ -298,13 +321,18 @@ public class TextView: NSView, NSTextContent {
 
         super.init(frame: .zero)
 
-        self.emphasizeAPI = EmphasizeAPI(textView: self)
-        self.storageDelegate = MultiStorageDelegate()
+        self.emphasisManager = EmphasisManager(textView: self)
+        if let storageDelegate = textStorage.delegate as? MultiStorageDelegate {
+            self.storageDelegate = storageDelegate
+        } else {
+            self.storageDelegate = MultiStorageDelegate()
+        }
 
         wantsLayer = true
         postsFrameChangedNotifications = true
         postsBoundsChangedNotifications = true
         autoresizingMask = [.width, .height]
+        registerForDraggedTypes([.string, .fileContents, .html, .multipleTextSelection, .tabularText, .rtf])
 
         self.typingAttributes = [
             .font: font,
@@ -316,8 +344,11 @@ public class TextView: NSView, NSTextContent {
 
         layoutManager = setUpLayoutManager(lineHeightMultiplier: lineHeightMultiplier, wrapLines: wrapLines)
         storageDelegate.addDelegate(layoutManager)
+
         selectionManager = setUpSelectionManager()
         selectionManager.useSystemCursor = useSystemCursor
+
+        layoutManager.attachments.setUpSelectionListener(for: selectionManager)
 
         _undoManager = CEUndoManager(textView: self)
 
@@ -325,37 +356,12 @@ public class TextView: NSView, NSTextContent {
         setUpDragGesture()
     }
 
-    required init?(coder: NSCoder) {
+    required public init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
     }
 
     public var documentRange: NSRange {
         NSRange(location: 0, length: textStorage.length)
-    }
-
-    // MARK: - View Lifecycle
-
-    override public func layout() {
-        layoutManager.layoutLines()
-        super.layout()
-    }
-
-    override public func viewWillMove(toWindow newWindow: NSWindow?) {
-        super.viewWillMove(toWindow: newWindow)
-        layoutManager.layoutLines()
-    }
-
-    override public func viewWillMove(toSuperview newSuperview: NSView?) {
-        guard let scrollView = enclosingScrollView else {
-            return
-        }
-
-        setUpScrollListeners(scrollView: scrollView)
-    }
-
-    override public func viewDidEndLiveResize() {
-        super.viewDidEndLiveResize()
-        updateFrameIfNeeded()
     }
 
     // MARK: - Hit test

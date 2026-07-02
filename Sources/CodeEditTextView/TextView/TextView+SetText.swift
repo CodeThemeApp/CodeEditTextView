@@ -20,6 +20,10 @@ extension TextView {
     public func setTextStorage(_ textStorage: NSTextStorage) {
         self.textStorage = textStorage
 
+        if let storageDelegate = textStorage.delegate as? MultiStorageDelegate {
+            self.storageDelegate = storageDelegate
+        }
+
         subviews.forEach { view in
             view.removeFromSuperview()
         }
@@ -27,9 +31,16 @@ extension TextView {
         textStorage.addAttributes(typingAttributes, range: documentRange)
         layoutManager.textStorage = textStorage
         layoutManager.reset()
+        storageDelegate.addDelegate(layoutManager)
 
         selectionManager.textStorage = textStorage
         selectionManager.setSelectedRanges(selectionManager.textSelections.map { $0.range })
+        NotificationCenter.default.post(
+            Notification(
+                name: TextSelectionManager.selectionChangedNotification,
+                object: selectionManager
+            )
+        )
 
         _undoManager?.clearStack()
 
