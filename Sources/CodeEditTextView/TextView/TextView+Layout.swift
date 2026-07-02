@@ -8,6 +8,12 @@
 import Foundation
 
 extension TextView {
+    override public func layout() {
+        super.layout()
+        layoutManager.layoutLines()
+        selectionManager.updateSelectionViews(skipTimerReset: true)
+    }
+
     open override class var isCompatibleWithResponsiveScrolling: Bool {
         true
     }
@@ -22,6 +28,7 @@ extension TextView {
         if isSelectable {
             selectionManager.drawSelections(in: dirtyRect)
         }
+        emphasisManager?.updateLayerBackgrounds()
     }
 
     override open var isFlipped: Bool {
@@ -64,7 +71,9 @@ extension TextView {
     public func updateFrameIfNeeded() -> Bool {
         var availableSize = scrollView?.contentSize ?? .zero
         availableSize.height -= (scrollView?.contentInsets.top ?? 0) + (scrollView?.contentInsets.bottom ?? 0)
-        let newHeight = max(layoutManager.estimatedHeight(), availableSize.height)
+
+        let extraHeight = availableSize.height * overscrollAmount
+        let newHeight = max(layoutManager.estimatedHeight() + extraHeight, availableSize.height, 0)
         let newWidth = layoutManager.estimatedWidth()
 
         var didUpdate = false

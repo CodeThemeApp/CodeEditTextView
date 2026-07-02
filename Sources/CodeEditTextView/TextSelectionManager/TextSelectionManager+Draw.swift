@@ -10,10 +10,10 @@ import AppKit
 extension TextSelectionManager {
     /// Draws line backgrounds and selection rects for each selection in the given rect.
     /// - Parameter rect: The rect to draw in.
-    func drawSelections(in rect: NSRect) {
+    public func drawSelections(in rect: NSRect) {
         guard let context = NSGraphicsContext.current?.cgContext else { return }
         context.saveGState()
-        var highlightedLines: Set<UUID> = []
+        var highlightedLines: Set<TextLine.ID> = []
         // For each selection in the rect
         for textSelection in textSelections {
             if textSelection.range.isEmpty {
@@ -41,7 +41,7 @@ extension TextSelectionManager {
         in rect: NSRect,
         for textSelection: TextSelection,
         context: CGContext,
-        highlightedLines: inout Set<UUID>
+        highlightedLines: inout Set<TextLine.ID>
     ) {
         guard let linePosition = layoutManager?.textLineForOffset(textSelection.range.location),
               !highlightedLines.contains(linePosition.data.id) else {
@@ -82,13 +82,7 @@ extension TextSelectionManager {
         context.setFillColor(fillColor)
 
         let fillRects = getFillRects(in: rect, for: textSelection)
-
-        let minX = fillRects.min(by: { $0.origin.x < $1.origin.x })?.origin.x ?? 0
-        let minY = fillRects.min(by: { $0.origin.y < $1.origin.y })?.origin.y ?? 0
-        let max = fillRects.max(by: { $0.maxY < $1.maxY }) ?? .zero
-        let origin = CGPoint(x: minX, y: minY)
-        let size = CGSize(width: max.maxX - minX, height: max.maxY - minY)
-        textSelection.boundingRect = CGRect(origin: origin, size: size)
+        textSelection.boundingRect = fillRects.boundingRect()
 
         context.fill(fillRects)
         context.restoreGState()

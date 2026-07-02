@@ -31,7 +31,13 @@ public final class TextLine: Identifiable, Equatable {
     /// - Returns: True, if this line has been marked as needing layout using ``TextLine/setNeedsLayout()`` or if the
     ///            line needs to find new line breaks due to a new constraining width.
     func needsLayout(maxWidth: CGFloat) -> Bool {
-        needsLayout || maxWidth != self.maxWidth
+        needsLayout // Force layout
+        || (
+            // Both max widths we're comparing are finite
+            maxWidth.isFinite
+            && (self.maxWidth ?? 0.0).isFinite
+            && maxWidth != (self.maxWidth ?? 0.0)
+        )
     }
 
     /// Prepares the line for display, generating all potential line breaks and calculating the real height of the line.
@@ -40,22 +46,23 @@ public final class TextLine: Identifiable, Equatable {
     ///   - range: The range this text range represents in the entire document.
     ///   - stringRef: A reference to the string storage for the document.
     ///   - markedRanges: Any marked ranges in the line.
-    ///   - breakStrategy: Determines how line breaks are calculated.
-    func prepareForDisplay(
+    ///   - attachments: Any attachments overlapping the line range.
+    public func prepareForDisplay(
         displayData: DisplayData,
         range: NSRange,
         stringRef: NSTextStorage,
-        markedRanges: MarkedTextManager.MarkedRanges?,
-        breakStrategy: LineBreakStrategy
+        markedRanges: MarkedRanges?,
+        attachments: [AnyTextAttachment]
     ) {
         let string = stringRef.attributedSubstring(from: range)
-        self.maxWidth = displayData.maxWidth
-        typesetter.typeset(
+        let maxWidth = typesetter.typeset(
             string,
+            documentRange: range,
             displayData: displayData,
-            breakStrategy: breakStrategy,
-            markedRanges: markedRanges
+            markedRanges: markedRanges,
+            attachments: attachments
         )
+        self.maxWidth = displayData.maxWidth
         needsLayout = false
     }
 
@@ -64,9 +71,22 @@ public final class TextLine: Identifiable, Equatable {
     }
 
     /// Contains all required data to perform a typeset and layout operation on a text line.
-    struct DisplayData {
-        let maxWidth: CGFloat
-        let lineHeightMultiplier: CGFloat
-        let estimatedLineHeight: CGFloat
+    public struct DisplayData {
+        public let maxWidth: CGFloat
+        public let lineHeightMultiplier: CGFloat
+        public let estimatedLineHeight: CGFloat
+        public let breakStrategy: LineBreakStrategy
+
+        public init(
+            maxWidth: CGFloat,
+            lineHeightMultiplier: CGFloat,
+            estimatedLineHeight: CGFloat,
+            breakStrategy: LineBreakStrategy = .character
+        ) {
+            self.maxWidth = maxWidth
+            self.lineHeightMultiplier = lineHeightMultiplier
+            self.estimatedLineHeight = estimatedLineHeight
+            self.breakStrategy = breakStrategy
+        }
     }
 }

@@ -24,29 +24,39 @@ public class ViewReuseQueue<View: NSView, Key: Hashable> {
     /// If there was no view dequeued for the given key, the returned view will either be a view queued for reuse or a
     /// new view object.
     ///
-    /// - Parameter key: The key for the view to find.
+    /// - Parameters:
+    ///   - key: The key for the view to find.
+    ///   - createView: A callback that is called to create a new instance of the queued view types.
     /// - Returns: A view for the given key.
-    public func getOrCreateView(forKey key: Key) -> View {
+    public func getOrCreateView(forKey key: Key, createView: () -> View) -> View {
         let view: View
         if let usedView = usedViews[key] {
             view = usedView
         } else {
-            view = queuedViews.popFirst() ?? View()
+            view = queuedViews.popFirst() ?? createView()
             view.prepareForReuse()
+            view.isHidden = false
             usedViews[key] = view
         }
         return view
+    }
+
+    public func getView(forKey key: Key) -> View? {
+        usedViews[key]
     }
 
     /// Removes a view for the given key and enqueues it for reuse.
     /// - Parameter key: The key for the view to reuse.
     public func enqueueView(forKey key: Key) {
         guard let view = usedViews[key] else { return }
-        if queuedViews.count < usedViews.count / 4 {
+        if queuedViews.count < usedViews.count {
             queuedViews.append(view)
+            view.frame = .zero
+            view.isHidden = true
+        } else {
+            view.removeFromSuperviewWithoutNeedingDisplay()
         }
         usedViews.removeValue(forKey: key)
-        view.removeFromSuperviewWithoutNeedingDisplay()
     }
 
     /// Enqueues all views not in the given set.

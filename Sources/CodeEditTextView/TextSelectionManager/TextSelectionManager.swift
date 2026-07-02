@@ -52,7 +52,7 @@ public class TextSelectionManager: NSObject {
     weak var delegate: TextSelectionManagerDelegate?
     var cursorTimer: CursorTimer
 
-    init(
+    public init(
         layoutManager: TextLayoutManager,
         textStorage: NSTextStorage,
         textView: TextView?,
@@ -78,15 +78,15 @@ public class TextSelectionManager: NSObject {
         let selection = TextSelection(range: range)
         selection.suggestedXPos = layoutManager?.rectForOffset(range.location)?.minX
         textSelections = [selection]
-        if textView?.isFirstResponder ?? false {
-            updateSelectionViews()
-            NotificationCenter.default.post(Notification(name: Self.selectionChangedNotification, object: self))
-        }
+        updateSelectionViews()
+        NotificationCenter.default.post(Notification(name: Self.selectionChangedNotification, object: self))
     }
 
     /// Set the selected ranges to new ranges. Overrides any existing selections.
     /// - Parameter range: The selected ranges to set.
     public func setSelectedRanges(_ ranges: [NSRange]) {
+        let oldRanges = textSelections.map(\.range)
+
         textSelections.forEach { $0.view?.removeFromSuperview() }
         // Remove duplicates, invalid ranges, update suggested X position.
         textSelections = Set(ranges)
@@ -94,13 +94,16 @@ public class TextSelectionManager: NSObject {
                 (0...(textStorage?.length ?? 0)).contains($0.location)
                 && (0...(textStorage?.length ?? 0)).contains($0.max)
             }
+            .sorted(by: { $0.location < $1.location })
             .map {
                 let selection = TextSelection(range: $0)
                 selection.suggestedXPos = layoutManager?.rectForOffset($0.location)?.minX
                 return selection
             }
-        if textView?.isFirstResponder ?? false {
-            updateSelectionViews()
+        updateSelectionViews()
+        delegate?.setNeedsDisplay()
+
+        if oldRanges != textSelections.map(\.range) {
             NotificationCenter.default.post(Notification(name: Self.selectionChangedNotification, object: self))
         }
     }
@@ -124,67 +127,25 @@ public class TextSelectionManager: NSObject {
         }
         if !didHandle {
             textSelections.append(newTextSelection)
+            textSelections.sort(by: { $0.range.location < $1.range.location })
         }
 
-        if textView?.isFirstResponder ?? false {
-            updateSelectionViews()
-            NotificationCenter.default.post(Notification(name: Self.selectionChangedNotification, object: self))
-        }
+        updateSelectionViews()
+        NotificationCenter.default.post(Notification(name: Self.selectionChangedNotification, object: self))
+        delegate?.setNeedsDisplay()
     }
 
     // MARK: - Selection Views
 
-    /// Update all selection cursors. Placing them in the correct position for each text selection and reseting the
-    /// blink timer.
-    func updateSelectionViews() {
+    /// Update all selection cursors. Placing them in the correct position for each text selection and
+    /// optionally reseting the blink timer.
+    func updateSelectionViews(force: Bool = false, skipTimerReset: Bool = false) {
+        guard textView?.isFirstResponder ?? false else { return }
         var didUpdate: Bool = false
 
         for textSelection in textSelections {
             if textSelection.range.isEmpty {
-                let cursorOrigin = (layoutManager?.rectForOffset(textSelection.range.location) ?? .zero).origin
-
-                var doesViewNeedReposition: Bool
-
-                // If using the system cursor, macOS will change the origin and height by about 0.5, so we do an
-                // approximate equals in that case to avoid extra updates.
-                if useSystemCursor, #available(macOS 14.0, *) {
-                    doesViewNeedReposition = !textSelection.boundingRect.origin.approxEqual(cursorOrigin)
-                    || !textSelection.boundingRect.height.approxEqual(layoutManager?.estimateLineHeight() ?? 0)
-                } else {
-                    doesViewNeedReposition = textSelection.boundingRect.origin != cursorOrigin
-                    || textSelection.boundingRect.height != layoutManager?.estimateLineHeight() ?? 0
-                }
-
-                if textSelection.view == nil || doesViewNeedReposition {
-                    let cursorView: NSView
-
-                    if let existingCursorView = textSelection.view {
-                        cursorView = existingCursorView
-                    } else {
-                        textSelection.view?.removeFromSuperview()
-                        textSelection.view = nil
-
-                        if useSystemCursor, #available(macOS 14.0, *) {
-                            let systemCursorView = NSTextInsertionIndicator(frame: .zero)
-                            cursorView = systemCursorView
-                            systemCursorView.displayMode = .automatic
-                        } else {
-                            let internalCursorView = CursorView(color: insertionPointColor)
-                            cursorView = internalCursorView
-                            cursorTimer.register(internalCursorView)
-                        }
-
-                        textView?.addSubview(cursorView)
-                    }
-
-                    cursorView.frame.origin = cursorOrigin
-                    cursorView.frame.size.height = heightForCursorAt(textSelection.range) ?? 0
-
-                    textSelection.view = cursorView
-                    textSelection.boundingRect = cursorView.frame
-
-                    didUpdate = true
-                }
+                didUpdate = didUpdate || repositionCursorSelection(textSelection: textSelection)
             } else if !textSelection.range.isEmpty && textSelection.view != nil {
                 textSelection.view?.removeFromSuperview()
                 textSelection.view = nil
@@ -192,11 +153,64 @@ public class TextSelectionManager: NSObject {
             }
         }
 
-        if didUpdate {
+        if didUpdate || force {
             delegate?.setNeedsDisplay()
-            cursorTimer.resetTimer()
-            resetSystemCursorTimers()
+            if !skipTimerReset {
+                cursorTimer.resetTimer()
+                resetSystemCursorTimers()
+            }
         }
+    }
+
+    private func repositionCursorSelection(textSelection: TextSelection) -> Bool {
+        guard let cursorRect = layoutManager?.rectForOffset(textSelection.range.location) else {
+            return false
+        }
+
+        var doesViewNeedReposition: Bool
+
+        // If using the system cursor, macOS will change the origin and height by about 0.5, so we do an
+        // approximate equals in that case to avoid extra updates.
+        if useSystemCursor, #available(macOS 14.0, *) {
+            doesViewNeedReposition = !textSelection.boundingRect.origin.approxEqual(cursorRect.origin)
+            || !textSelection.boundingRect.height.approxEqual(layoutManager?.estimateLineHeight() ?? 0)
+        } else {
+            doesViewNeedReposition = textSelection.boundingRect.origin != cursorRect.origin
+            || textSelection.boundingRect.height != layoutManager?.estimateLineHeight() ?? 0
+        }
+
+        if textSelection.view == nil || doesViewNeedReposition {
+            let cursorView: NSView
+
+            if let existingCursorView = textSelection.view {
+                cursorView = existingCursorView
+            } else {
+                textSelection.view?.removeFromSuperview()
+                textSelection.view = nil
+
+                if useSystemCursor, #available(macOS 14.0, *) {
+                    let systemCursorView = NSTextInsertionIndicator(frame: .zero)
+                    cursorView = systemCursorView
+                    systemCursorView.displayMode = .automatic
+                } else {
+                    let internalCursorView = CursorView(color: insertionPointColor)
+                    cursorView = internalCursorView
+                    cursorTimer.register(internalCursorView)
+                }
+
+                textView?.addSubview(cursorView, positioned: .above, relativeTo: nil)
+            }
+
+            cursorView.frame.origin = cursorRect.origin
+            cursorView.frame.size.height = cursorRect.height
+
+            textSelection.view = cursorView
+            textSelection.boundingRect = cursorView.frame
+
+            return true
+        }
+
+        return false
     }
 
     private func resetSystemCursorTimers() {
@@ -221,7 +235,6 @@ public class TextSelectionManager: NSObject {
             .getLine(atOffset: range.location - (selectedLine.range.location))?
             .height
         ?? layoutManager?.estimateLineHeight()
-
     }
 
     /// Removes all cursor views and stops the cursor blink timer.

@@ -8,16 +8,6 @@
 import Foundation
 import AppKit
 
-public protocol TextLayoutManagerDelegate: AnyObject {
-    func layoutManagerHeightDidUpdate(newHeight: CGFloat)
-    func layoutManagerMaxWidthDidChange(newWidth: CGFloat)
-    func layoutManagerTypingAttributes() -> [NSAttributedString.Key: Any]
-    func textViewportSize() -> CGSize
-    func layoutManagerYAdjustment(_ yAdjustment: CGFloat)
-
-    var visibleRect: NSRect { get }
-}
-
 /// The text layout manager manages laying out lines in a code document.
 public class TextLayoutManager: NSObject {
     // MARK: - Public Properties
@@ -65,12 +55,32 @@ public class TextLayoutManager: NSObject {
         }
     }
 
+    public weak var renderDelegate: TextLayoutManagerRenderDelegate? {
+        didSet {
+            // Rebuild using potentially overridden behavior.
+            _estimateLineHeight = nil
+            lineStorage.removeAll()
+            prepareTextLines()
+        }
+    }
+
+    public let attachments: TextAttachmentManager = TextAttachmentManager()
+
+    public weak var invisibleCharacterDelegate: InvisibleCharactersDelegate? {
+        didSet {
+            lineFragmentRenderer.invisibleCharacterDelegate = invisibleCharacterDelegate
+            layoutView?.needsDisplay = true
+        }
+    }
+
     // MARK: - Internal
 
     weak var textStorage: NSTextStorage?
-    var lineStorage: TextLineStorage<TextLine> = TextLineStorage()
+    public var lineStorage: TextLineStorage<TextLine> = TextLineStorage()
     var markedTextManager: MarkedTextManager = MarkedTextManager()
-    private let viewReuseQueue: ViewReuseQueue<LineFragmentView, UUID> = ViewReuseQueue()
+    let viewReuseQueue: ViewReuseQueue<LineFragmentView, LineFragment.ID> = ViewReuseQueue()
+    let lineFragmentRenderer: LineFragmentRenderer
+
     package var visibleLineIds: Set<TextLine.ID> = []
     /// Used to force a complete re-layout using `setNeedsLayout`
     package var needsLayout: Bool = false
@@ -79,13 +89,10 @@ public class TextLayoutManager: NSObject {
     public var isInTransaction: Bool {
         transactionCounter > 0
     }
-    #if DEBUG
+
     /// Guard variable for an assertion check in debug builds.
     /// Ensures that layout calls are not overlapping, potentially causing layout issues.
-    /// This is used over a lock, as locks in performant code such as this would be detrimental to performance.
-    /// Also only included in debug builds. DO NOT USE for checking if layout is active or not. That is an anti-pattern.
-    private var isInLayout: Bool = false
-    #endif
+    var layoutLock: NSLock = NSLock()
 
     weak var layoutView: NSView?
 
@@ -100,20 +107,13 @@ public class TextLayoutManager: NSObject {
 
     /// The maximum width available to lay out lines in, used to determine how much space is available for laying out
     /// lines. Evals to `.greatestFiniteMagnitude` when ``wrapLines`` is `false`.
-    var maxLineLayoutWidth: CGFloat {
+    public var maxLineLayoutWidth: CGFloat {
         wrapLines ? wrapLinesWidth : .greatestFiniteMagnitude
     }
 
     /// The width of the space available to draw text fragments when wrapping lines.
-    var wrapLinesWidth: CGFloat {
+    public var wrapLinesWidth: CGFloat {
         (delegate?.textViewportSize().width ?? .greatestFiniteMagnitude) - edgeInsets.horizontal
-    }
-
-    /// Contains all data required to perform layout on a text line.
-    private struct LineLayoutData {
-        let minY: CGFloat
-        let maxY: CGFloat
-        let maxWidth: CGFloat
     }
 
     // MARK: - Init
@@ -125,20 +125,29 @@ public class TextLayoutManager: NSObject {
     ///   - wrapLines: Set to true to wrap lines to the visible editor width.
     ///   - textView: The view to layout text fragments in.
     ///   - delegate: A delegate for the layout manager.
-    init(
+    public init(
         textStorage: NSTextStorage,
         lineHeightMultiplier: CGFloat,
         wrapLines: Bool,
         textView: NSView,
-        delegate: TextLayoutManagerDelegate?
+        delegate: TextLayoutManagerDelegate?,
+        renderDelegate: TextLayoutManagerRenderDelegate? = nil,
+        invisibleCharacterDelegate: InvisibleCharactersDelegate? = nil
     ) {
         self.textStorage = textStorage
         self.lineHeightMultiplier = lineHeightMultiplier
         self.wrapLines = wrapLines
         self.layoutView = textView
         self.delegate = delegate
+        self.renderDelegate = renderDelegate
+        self.lineFragmentRenderer = LineFragmentRenderer(
+            textStorage: textStorage,
+            invisibleCharacterDelegate: invisibleCharacterDelegate
+        )
+        self.invisibleCharacterDelegate = invisibleCharacterDelegate
         super.init()
         prepareTextLines()
+        attachments.layoutManager = self
     }
 
     /// Prepares the layout manager for use.
@@ -159,8 +168,13 @@ public class TextLayoutManager: NSObject {
         let end = mach_absolute_time()
         let elapsed = end - start
         let nanos = elapsed * UInt64(info.numer) / UInt64(info.denom)
-        let msec = TimeInterval(nanos) / TimeInterval(NSEC_PER_MSEC)
-        logger.info("TextLayoutManager built in: \(msec, privacy: .public)ms")
+        let sec = TimeInterval(nanos) / TimeInterval(NSEC_PER_SEC)
+        // This used to be logged every time. However we're now confident enough in the performance of this method
+        // that it's not useful to log it anymore unless it's an odd number. Taking ~500ms for a >500k loc file
+        // is normal. More than 1s for any document is not normal.
+        if sec >= 1 {
+            logger.warning("TextLayoutManager built in: \(sec, privacy: .public)s")
+        }
         #endif
     }
 
@@ -172,6 +186,7 @@ public class TextLayoutManager: NSObject {
         viewReuseQueue.usedViews.removeAll()
         maxLineWidth = 0
         markedTextManager.removeAll()
+        lineFragmentRenderer.textStorage = textStorage
         prepareTextLines()
         setNeedsLayout()
     }
@@ -182,6 +197,9 @@ public class TextLayoutManager: NSObject {
     public func estimateLineHeight() -> CGFloat {
         if let _estimateLineHeight {
             return _estimateLineHeight
+        } else if let estimate = renderDelegate?.estimatedLineHeight() {
+            _estimateLineHeight = estimate
+            return estimate
         } else {
             let string = NSAttributedString(string: "0", attributes: delegate?.layoutManagerTypingAttributes() ?? [:])
             let typesetter = CTTypesetterCreateWithAttributedString(string)
@@ -190,177 +208,15 @@ public class TextLayoutManager: NSObject {
             var descent: CGFloat = 0
             var leading: CGFloat = 0
             CTLineGetTypographicBounds(ctLine, &ascent, &descent, &leading)
-            _estimateLineHeight = (ascent + descent + leading) * lineHeightMultiplier
-            return _estimateLineHeight!
+            let height = (ascent + descent + leading) * lineHeightMultiplier
+            _estimateLineHeight = height
+            return height
         }
     }
 
     /// The last known line height estimate. If  set to `nil`, will be recalculated the next time
     /// ``TextLayoutManager/estimateLineHeight()`` is called.
     private var _estimateLineHeight: CGFloat?
-
-    // MARK: - Layout
-
-    /// Asserts that the caller is not in an active layout pass.
-    /// See docs on ``isInLayout`` for more details.
-    private func assertNotInLayout() {
-        #if DEBUG // This is redundant, but it keeps the flag debug-only too which helps prevent misuse.
-        assert(!isInLayout, "layoutLines called while already in a layout pass. This is a programmer error.")
-        #endif
-    }
-
-    /// Lays out all visible lines
-    func layoutLines(in rect: NSRect? = nil) { // swiftlint:disable:this function_body_length
-        assertNotInLayout()
-        guard layoutView?.superview != nil,
-              let visibleRect = rect ?? delegate?.visibleRect,
-              !isInTransaction,
-              let textStorage else {
-            return
-        }
-        #if DEBUG
-        isInLayout = true
-        #endif
-        let minY = max(visibleRect.minY - verticalLayoutPadding, 0)
-        let maxY = max(visibleRect.maxY + verticalLayoutPadding, 0)
-        let originalHeight = lineStorage.height
-        var usedFragmentIDs = Set<UUID>()
-        var forceLayout: Bool = needsLayout
-        var newVisibleLines: Set<TextLine.ID> = []
-        var yContentAdjustment: CGFloat = 0
-        var maxFoundLineWidth = maxLineWidth
-
-        // Layout all lines, fetching lines lazily as they are laid out.
-        for linePosition in lineStorage.linesStartingAt(minY, until: maxY).lazy {
-            guard linePosition.yPos < maxY else { break }
-            if forceLayout
-                || linePosition.data.needsLayout(maxWidth: maxLineLayoutWidth)
-                || !visibleLineIds.contains(linePosition.data.id) {
-                let lineSize = layoutLine(
-                    linePosition,
-                    textStorage: textStorage,
-                    layoutData: LineLayoutData(minY: minY, maxY: maxY, maxWidth: maxLineLayoutWidth),
-                    laidOutFragmentIDs: &usedFragmentIDs
-                )
-                if lineSize.height != linePosition.height {
-                    lineStorage.update(
-                        atIndex: linePosition.range.location,
-                        delta: 0,
-                        deltaHeight: lineSize.height - linePosition.height
-                    )
-                    // If we've updated a line's height, force re-layout for the rest of the pass.
-                    forceLayout = true
-
-                    if linePosition.yPos < minY {
-                        // Adjust the scroll position by the difference between the new height and old.
-                        yContentAdjustment += lineSize.height - linePosition.height
-                    }
-                }
-                if maxFoundLineWidth < lineSize.width {
-                    maxFoundLineWidth = lineSize.width
-                }
-            } else {
-                // Make sure the used fragment views aren't dequeued.
-                usedFragmentIDs.formUnion(linePosition.data.lineFragments.map(\.data.id))
-            }
-            newVisibleLines.insert(linePosition.data.id)
-        }
-
-        // Enqueue any lines not used in this layout pass.
-        viewReuseQueue.enqueueViews(notInSet: usedFragmentIDs)
-
-        // Update the visible lines with the new set.
-        visibleLineIds = newVisibleLines
-
-        #if DEBUG
-        isInLayout = false
-        #endif
-
-        // These are fine to update outside of `isInLayout` as our internal data structures are finalized at this point
-        // so laying out again won't break our line storage or visible line.
-
-        if maxFoundLineWidth > maxLineWidth {
-            maxLineWidth = maxFoundLineWidth
-        }
-
-        if yContentAdjustment != 0 {
-            delegate?.layoutManagerYAdjustment(yContentAdjustment)
-        }
-
-        if originalHeight != lineStorage.height || layoutView?.frame.size.height != lineStorage.height {
-            delegate?.layoutManagerHeightDidUpdate(newHeight: lineStorage.height)
-        }
-
-        needsLayout = false
-    }
-
-    /// Lays out a single text line.
-    /// - Parameters:
-    ///   - position: The line position from storage to use for layout.
-    ///   - textStorage: The text storage object to use for text info.
-    ///   - layoutData: The information required to perform layout for the given line.
-    ///   - laidOutFragmentIDs: Updated by this method as line fragments are laid out.
-    /// - Returns: A `CGSize` representing the max width and total height of the laid out portion of the line.
-    private func layoutLine(
-        _ position: TextLineStorage<TextLine>.TextLinePosition,
-        textStorage: NSTextStorage,
-        layoutData: LineLayoutData,
-        laidOutFragmentIDs: inout Set<UUID>
-    ) -> CGSize {
-        let lineDisplayData = TextLine.DisplayData(
-            maxWidth: layoutData.maxWidth,
-            lineHeightMultiplier: lineHeightMultiplier,
-            estimatedLineHeight: estimateLineHeight()
-        )
-
-        let line = position.data
-        line.prepareForDisplay(
-            displayData: lineDisplayData,
-            range: position.range,
-            stringRef: textStorage,
-            markedRanges: markedTextManager.markedRanges(in: position.range),
-            breakStrategy: lineBreakStrategy
-        )
-
-        if position.range.isEmpty {
-            return CGSize(width: 0, height: estimateLineHeight())
-        }
-
-        var height: CGFloat = 0
-        var width: CGFloat = 0
-        let relativeMinY = max(layoutData.minY - position.yPos, 0)
-        let relativeMaxY = max(layoutData.maxY - position.yPos, relativeMinY)
-
-        for lineFragmentPosition in line.lineFragments.linesStartingAt(
-            relativeMinY,
-            until: relativeMaxY
-        ) {
-            let lineFragment = lineFragmentPosition.data
-
-            layoutFragmentView(for: lineFragmentPosition, at: position.yPos + lineFragmentPosition.yPos)
-
-            width = max(width, lineFragment.width)
-            height += lineFragment.scaledHeight
-            laidOutFragmentIDs.insert(lineFragment.id)
-        }
-
-        return CGSize(width: width, height: height)
-    }
-
-    /// Lays out a line fragment view for the given line fragment at the specified y value.
-    /// - Parameters:
-    ///   - lineFragment: The line fragment position to lay out a view for.
-    ///   - yPos: The y value at which the line should begin.
-    private func layoutFragmentView(
-        for lineFragment: TextLineStorage<LineFragment>.TextLinePosition,
-        at yPos: CGFloat
-    ) {
-        let view = viewReuseQueue.getOrCreateView(forKey: lineFragment.data.id)
-        view.setLineFragment(lineFragment.data)
-        view.frame.origin = CGPoint(x: edgeInsets.left, y: yPos)
-        layoutView?.addSubview(view)
-        view.needsDisplay = true
-    }
 
     deinit {
         lineStorage.removeAll()

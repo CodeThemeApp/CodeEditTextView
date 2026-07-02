@@ -14,7 +14,8 @@ extension TextLayoutManager {
         for linePosition in lineStorage.linesStartingAt(rect.minY, until: rect.maxY) {
             linePosition.data.setNeedsLayout()
         }
-        layoutLines()
+
+        layoutView?.needsLayout = true
     }
 
     /// Invalidates layout for the given range of text.
@@ -24,11 +25,18 @@ extension TextLayoutManager {
             linePosition.data.setNeedsLayout()
         }
 
-        layoutLines()
+        // Special case where we've deleted from the very end, `linesInRange` correctly does not return any lines
+        // So we need to invalidate the last line specifically.
+        if range.location == textStorage?.length, !lineStorage.isEmpty {
+            lineStorage.last?.data.setNeedsLayout()
+        }
+
+        layoutView?.needsLayout = true
     }
 
     public func setNeedsLayout() {
         needsLayout = true
         visibleLineIds.removeAll(keepingCapacity: true)
+        layoutView?.needsLayout = true
     }
 }
