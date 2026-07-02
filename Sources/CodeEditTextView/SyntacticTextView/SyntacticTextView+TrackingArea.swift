@@ -41,7 +41,7 @@ extension SyntacticTextView {
     private func createTrackingArea(for rect: NSRect) -> NSTrackingArea {
         return NSTrackingArea(
             rect: rect,
-            options: [.mouseEnteredAndExited, .mouseMoved, .activeInKeyWindow],
+            options: [.mouseEnteredAndExited, .mouseMoved, .activeAlways],
             owner: self,
             userInfo: nil
         )

@@ -48,6 +48,7 @@ public extension SyntacticTextView {
 
     override func mouseExited(with event: NSEvent) {
         roundedPreviousMousePosition = nil
+        deselectCapture()
     }
 
     private func updatedLocation(for event: NSEvent) -> NSPoint? {
@@ -64,6 +65,6 @@ public extension SyntacticTextView {
     }
 
     private func handleHover(at offset: Int) {
-        selectionManager.setSelectedRanges([NSRange(location: offset, length: 0)])
+        detectCapture(at: offset)
     }
 }

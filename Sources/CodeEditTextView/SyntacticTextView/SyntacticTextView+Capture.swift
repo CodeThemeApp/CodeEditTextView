@@ -72,6 +72,25 @@ extension SyntacticTextView {
         case unknown
     }
 
+    func detectCapture(at offset: Int) {
+        selectionManager.setSelectedRange(NSRange(location: offset, length: 0))
+        guard textStorage.string.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false else {
+            deselectCapture()
+            return
+        }
+
+        do {
+            let hoveredRange = try rangeForSelectedCapture()
+            let captureName = try captureName(for: hoveredRange)
+            currentlyHoveredCaptureName = captureName
+            syntacticSelectionManager.setSelectedCapture(captureName, at: hoveredRange)
+            unmarkTextIfNeeded()
+            needsDisplay = true
+        } catch {
+            deselectCapture()
+        }
+    }
+
     func selectCapture(_ sender: Any?) {
         // TODO: [09.03.2025] Add selection padding -
         /// to check leading / trailing characters next to current selection
@@ -89,7 +108,6 @@ extension SyntacticTextView {
             selectionManager.setSelectedRanges(matchingRanges)
             // TODO: [23.03.2025] Efficiency issue: many repeating calls -
             syntacticSelectionManager.setSelectedCapture(captureName, at: hoveredRange)
-            print("Hovered range: \(hoveredRange)")
             unmarkTextIfNeeded()
             needsDisplay = true
         } catch {
